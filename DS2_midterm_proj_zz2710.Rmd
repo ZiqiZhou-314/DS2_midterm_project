@@ -1,0 +1,194 @@
+---
+title: "pre_run"
+author: "Ziqi Zhou"
+date: "3/12/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(caret)
+library(MASS)
+
+library(splines)
+library(mgcv)
+library(ggplot2)
+library(patchwork)
+library(pdp)
+library(earth)
+library(corrplot)
+library(plotmo)
+```
+
+
+```{r,include=FALSE}
+#read data and omit missing value
+wine = read_csv("./data/winequality-red.csv") %>% 
+  janitor::clean_names() %>% 
+  na.omit()
+```
+
+
+```{r}
+# Separate data into training data and test data
+set.seed(11)
+trRows = createDataPartition(wine$quality, p = .75, list = F)
+
+#all data
+x = model.matrix(quality ~ .,wine)[,-1]
+y = wine$quality
+
+# Training data
+x1 = model.matrix(quality ~ .,wine)[trRows,-1]
+y1 = wine$quality[trRows]
+
+# test data
+x2 = model.matrix(quality ~ .,wine)[-trRows,-1]
+y2 = wine$quality[-trRows]
+```
+
+```{r}
+#set ctrl1
+ctrl1 <- trainControl(method = "cv", number = 10)
+```
+
+# Exploratory Data Analysis
+
+```{r, fig.height=4}
+#Create scatter plots of responses and predictors
+theme1 <- trellis.par.get()
+theme1$plot.symbol$col <- rgb(.2, .4, .2, .5)
+theme1$plot.symbol$pch <- 16
+theme1$plot.line$col <- rgb(.8, .1, .1, 1)
+theme1$plot.line$lwd <- 2
+theme1$strip.background$col <- rgb(.0, .2, .6, .2)
+trellis.par.set(theme1)
+featurePlot(x, y, plot = "scatter", labels = c("","Y"),
+            type = c("p"), layout = c(4, 2))
+```
+
+```{r}
+corrplot(cor(x1), method = "square", type = "full")
+```
+**description**
+
+pH and fixed acidity
+alcohol and density
+citric acid and fixed acidity
+citric acid and volatile acidity
+
+# Model fit
+
+```{r}
+#linear fit R^2 = 0.3458
+set.seed(1)
+lm.fit <-train(x1, y1,method = "lm",
+               trControl = ctrl1)
+summary(lm.fit)
+```
+
+```{r}
+#Ridge fit
+set.seed(1)
+ridge.fit <-train(x1, y1,method = "glmnet",
+                  tuneGrid =expand.grid(alpha = 0,
+                                        lambda =exp(seq(-5, 5, length=100))),
+                  trControl = ctrl1)
+                
+plot(ridge.fit, xTrans =function(x)log(x))
+ridge.fit$bestTune
+coef(ridge.fit$finalModel,ridge.fit$bestTune$lambda)
+
+predict(ridge.fit, s = ridge.fit$bestTune, newdata = x2)
+```
+
+```{r}
+set.seed(1)
+# Lasso
+lasso.fit = train(x1, y1,method = "glmnet",
+                  tuneGrid =expand.grid(alpha = 1,
+                                        lambda =exp(seq(-10, 0, length=100))),
+                  trControl = ctrl1)
+                
+plot(lasso.fit, xTrans =function(x)log(x))
+lasso.fit$bestTune
+coef(lasso.fit$finalModel,lasso.fit$bestTune$lambda)
+```
+
+
+
+
+Treat the response quality as continous variable or classified variable
+How to treat quality as classified variable? factor the response
+
+
+```{r}
+#fit GAM  R^2 = 0.415 
+gam.fit <- train(x1, y1,
+                 method = "gam",
+                 tuneGrid = data.frame(method = "GCV.Cp", select = FALSE),
+                 trControl = ctrl1)
+summary(gam.fit)
+gam.fit$finalModel
+
+plot(gam.fit$finalModel)
+```
+
+
+```{r}
+# MARS R^2 = 0.4271106
+mars_grid <- expand.grid(degree = 1:2, 
+                         nprune = 2:20)
+
+set.seed(2)
+mars.fit <- train(x1, y1,
+                  method = "earth",
+                  tuneGrid = mars_grid,
+                  trControl = ctrl1)
+
+ggplot(mars.fit)
+
+summary(mars.fit)
+
+mars.fit$bestTune
+coef(mars.fit$finalModel) 
+```
+
+# Pick a model
+
+Look R-squared
+
+
+
+## Resample
+
+```{r}
+resamp = resamples(list(lm = lm.fit, ridge = ridge.fit, lasso = lasso.fit, mars = mars.fit, mars = mars.fit))
+
+summary(resamp)
+bwplot(resamp, metric = "RMSE")
+```
+
+
+
+# Predict
+
+```{r}
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
