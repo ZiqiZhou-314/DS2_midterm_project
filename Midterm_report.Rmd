@@ -1,0 +1,248 @@
+---
+title: "Midterm Project Report"
+author: "Ziqi Zhou"
+date: "4/3/2020"
+output: pdf_document
+
+\fontsize: 11
+    - \textwidth 6.75in
+    - \textheight 8.5in
+    - \oddsidemargin -.25in
+    - \evensidemargin -.25in
+    - \topmargin -0.5in
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      warning = FALSE,
+                      out.width = "90%")
+library(tidyverse)
+library(caret)
+library(MASS)
+
+library(splines)
+library(mgcv)
+library(ggplot2)
+library(patchwork)
+library(pdp)
+library(earth)
+library(corrplot)
+library(plotmo)
+```
+
+# Introduction
+
+The red wine is one of the most popular alcoholic beverages in the world. Most of our team members enjoy drinking red wine and have a great interest in factors that can affect the quality of the red wine. We want to figure out what determined the quality of the wine. Based on this motivation, we choose this dataset “Red Wine Quality”.
+
+This dataset has 12 columns and 1599 rows. And after omitting the NA data, we still got 1599 rows which means there is no missing value in this dataset. There is 1 outcome which is the quality score of the wine(from 0 to 10) and 11 predictors including fixed acidity volatile, acidity, citric acid, residual sugar, chlorides, free sulfur dioxide, total sulfur dioxide, density, pH, sulphates and alcohol.
+
+We would like to know what factors influence the quality of the wine and try to build a model to predict the quality of wine given the specific factors.
+    
+I uesd "janitor::clean_names()" to clean the dataset and separate it into training data and test data "createDataPartition(wine$quality, p = .75, list = F)".
+
+```{r, include = FALSE}
+#read data and omit missing value
+wine = read_csv("./data/winequality-red.csv") %>% 
+  janitor::clean_names() %>% 
+  na.omit() 
+
+# Separate data into training data and test data
+set.seed(11)
+trRows = createDataPartition(wine$quality, p = .75, list = F)
+
+#all data
+x = model.matrix(quality ~ .,wine)[,-1]
+y = wine$quality
+
+# Training data
+x1 = model.matrix(quality ~ .,wine)[trRows,-1]
+y1 = wine$quality[trRows]
+
+# test data
+x2 = model.matrix(quality ~ .,wine)[-trRows,-1]
+y2 = wine$quality[-trRows]
+```
+```{r include=FALSE}
+#set ctrl1
+ctrl1 <- trainControl(method = "cv", number = 10)
+```
+
+# Exploratory Data Analysis
+
+```{r,include=FALSE}
+# Density plot
+
+f_a = ggplot(wine,aes(x =fixed_acidity)) + 
+  geom_density()
+
+v_c = ggplot(wine,aes(x =volatile_acidity)) + 
+  geom_density()
+
+c_a = ggplot(wine,aes(x =citric_acid)) + 
+  geom_density()
+
+r_s = ggplot(wine,aes(x =residual_sugar)) + 
+  geom_density()
+
+chol = ggplot(wine,aes(x =chlorides)) + 
+  geom_density()
+
+fsd = ggplot(wine,aes(x =free_sulfur_dioxide)) + 
+  geom_density()
+
+tsd = ggplot(wine,aes(x =total_sulfur_dioxide)) + 
+  geom_density()
+
+denst = ggplot(wine,aes(x =density)) + 
+  geom_density()
+
+ph = ggplot(wine,aes(x =p_h)) + 
+  geom_density()
+
+sup = ggplot(wine,aes(x =sulphates)) + 
+  geom_density()
+
+achol = ggplot(wine,aes(x =alcohol)) + 
+  geom_density()
+
+(f_a + v_c + c_a + r_s + chol) / (fsd + tsd + denst + ph + sup + achol)
+```
+
+```{r, echo = FALSE,fig.height=3.5}
+#correlation plot
+corrplot(cor(x1), method = "square", type = "upper", order = "hclust", 
+         tl.col = "black", tl.srt = 45, sig.level = 0.01, insig = "blank",number.font = 5)
+```
+
+**Description**
+
+We could find in this plot that the fixed acidity and citric acidity are highly positive correlated. Fixed acidity is highly positive correlated with density. Volatile_acidity is negative correlated with fixed acidity and citric acidity. What's more the pH is negative correlated with fixed acidity and citric acidity. It is easy to interpret since the pH is describes how acidic or basic a wine is. The factors might influence each other somehow.
+
+However, high correlations might cause problem. So I consider use lasso or ridge method to penalize them.
+
+# Models
+
+```{r,  echo = FALSE}
+#Linear fit
+set.seed(11)
+lm.fit <-train(x1, y1,method = "lm",
+               trControl = ctrl1)
+```
+
+```{r,  echo = FALSE}
+#Ridge fit
+set.seed(11)
+ridge.fit <-train(x1, y1,method = "glmnet",
+                  tuneGrid =expand.grid(alpha = 0,
+                                        lambda =exp(seq(-5, 5, length=100))),
+                  trControl = ctrl1)
+```
+
+```{r,  echo = FALSE}
+# Lasso
+set.seed(11)
+lasso.fit = train(x1, y1,method = "glmnet",
+                  tuneGrid =expand.grid(alpha = 1,
+                                        lambda =exp(seq(-10, 0, length=100))),
+                  trControl = ctrl1)
+```
+
+```{r,  echo = FALSE}
+#pcr
+set.seed(11)
+pcr.fit <-train(x1, y1,
+                method = "pcr",
+                tuneGrid  =data.frame(ncomp = 1:11),
+                trControl = ctrl1,
+                preProc =c("center", "scale"))
+```
+
+```{r,  echo = FALSE}
+#pls
+set.seed(11)
+pls.fit <-train(x1, y1,method = "pls",
+                tuneGrid =data.frame(ncomp = 1:12),
+                trControl = ctrl1,preProc =c("center", "scale"))
+
+```
+
+```{r,  echo = FALSE}
+#GAM
+set.seed(11)
+gam.fit <- train(x1, y1,
+                 method = "gam",
+                 tuneGrid = data.frame(method = "GCV.Cp", select = FALSE),
+                 trControl = ctrl1)
+```
+
+```{r,  echo = FALSE}
+# MARS
+set.seed(11)
+mars_grid <- expand.grid(degree = 1:2, 
+                         nprune = 1:12)
+
+
+mars.fit <- train(x1, y1,
+                  method = "earth",
+                  tuneGrid = mars_grid,
+                  trControl = ctrl1)
+
+```
+
+```{r,  echo = FALSE, fig.height=4}
+set.seed(11)
+#Resample
+resamp = resamples(list(lm = lm.fit, ridge = ridge.fit, lasso = lasso.fit, mars = mars.fit, gam = gam.fit, pcr = pcr.fit, pls = pls.fit))
+
+#summary(resamp)
+
+bwplot(resamp, metric = "RMSE")
+```
+
+I used the Linear Regression, Ridge, Lasso, PCR, PLS, GAM and MARS to fit the data. I used "caret" package to make cross-validation, resamp() to compare the model and decided to use GAM method to build the model based on the biggest R-square and relatively smallest RMSE.
+
+| Method | R-square | RMSE |
+|:----------------:|:--------:|:-----:|
+|Linear Regression|0.3420745|0.6668210|
+| Ridge           |0.3421780|0.6665864|
+| Lasso           |0.3441676|0.6654834|
+| MARS            |0.3521095|0.6623480|
+| GAM             |**0.3531965**|**0.6633735**|
+| PCR             |0.3420745|0.6668210|
+| PLS             |0.3424195|0.6666716|
+
+
+```{r include=FALSE}
+#GAM
+summary(gam.fit)
+gam.fit$finalModel$coefficients
+gam.fit$bestTune
+plot(gam.fit$finalModel)
+```
+
+
+```{r, include=FALSE}
+#mse
+predict.gam = predict(gam.fit, newdata = x2)
+mse = mean(y2 - predict.gam)
+```
+GAM being taken to include any quadratilcally oenalized GLM and a variety of other models estimated by a quadratically penalised likelihood type approach. And I use the GCV.cp to estimate the smoothing parameter.
+In this GAM model we conclude all the predictors.
+
+The information about the final Model is as below.The mse of this model is `r mse`.
+```{r}
+gam.fit$finalModel
+```
+
+Limitation: the outcome of the data is a classified variable with order. However, in my report I just treated the outcome as continuous variable. It might be more reasonable to use LDA or other method of classification to analysis.
+Since I used the caret package to generate the GAM cv, I may lose some flexibility in mgcv.
+
+
+# Conclusions
+
+All the 11 predictors are related with the outcome (quality). Some predictors might have correlations. GAM was relatively suitable to be used to build the predict model about the quality of wine.
+
+Nowadays, the quality of wine is decided by the human tasters. So it is so subjective. With the predict model, the producer could control the process of production so that they could produce good wine effectively.
+
+
+

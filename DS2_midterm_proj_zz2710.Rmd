@@ -2,7 +2,9 @@
 title: "pre_run"
 author: "Ziqi Zhou"
 date: "3/12/2020"
-output: html_document
+output: pdf_document
+
+\fontsize: 11
 ---
 
 ```{r setup, include=FALSE}
@@ -19,16 +21,43 @@ library(pdp)
 library(earth)
 library(corrplot)
 library(plotmo)
+
+library(mlbench)
+
+library(e1071)
 ```
 
+# Introduction
 
-```{r,include=FALSE}
+The red wine is one of the most popular alcoholic beverages in the world. Most of our team members enjoy drinking red wine and have a great interest in factors that can affect the quality of the red wine. We want to figure out what determined the quality of the wine. Based on this motivation, we choose this dataset “Red Wine Quality”.
+
+This dataset has 12 columns and 1599 rows. And after omitting the NA data, we still got 1599 rows which means there is no missing value in this dataset.
+
+Variable introduction
+1. fixed acidity : most acids involved with wine or fixed or nonvolatile (do not evaporate readily)
+2.volatile acidity : the amount of acetic acid in wine, which at too high of levels can lead to an unpleasant, vinegar taste
+3.citric acid : found in small quantities, citric acid can add 'freshness' and flavor to wines
+4.residual sugar : the amount of sugar remaining after fermentation stops, it's rare to find wines with less than 1 gram/liter and wines with greater than 45 grams/liter are considered sweet
+5.chlorides : the amount of salt in the wine
+6.free sulfur dioxide : the free form of SO2 exists in equilibrium between molecular SO2 (as a dissolved gas) and bisulfite ion; it prevents microbial growth and the oxidation of wine
+7.total sulfur dioxide : amount of free and bound forms of S02; in low concentrations, SO2 is mostly undetectable in wine, but at free SO2 concentrations over 50 ppm, SO2 becomes evident in the nose and taste of wine
+8.density : the density of water is close to that of water depending on the percent alcohol and sugar content
+9.pH : describes how acidic or basic a wine is on a scale from 0 (very acidic) to 14 (very basic); most wines are between 3-4 on the pH scale
+10.sulphates : a wine additive which can contribute to sulfur dioxide gas (S02) levels, wich acts as an antimicrobial and antioxidant
+11.alcohol : the percent alcohol content of the wine
+12.quality (response): output variable (based on sensory data, score between 0 and 10)
+    
+    
+We would like to know what factors influence the quality of the wine and try to build a model to predict the quality of wine given the specific factors.
+    
+I used the code below to prepare and clean the data.
+
+```{r,include=FALS,Emessage = FALSE, warning=FALSE}
 #read data and omit missing value
 wine = read_csv("./data/winequality-red.csv") %>% 
   janitor::clean_names() %>% 
-  na.omit()
+  na.omit() 
 ```
-
 
 ```{r}
 # Separate data into training data and test data
@@ -48,12 +77,52 @@ x2 = model.matrix(quality ~ .,wine)[-trRows,-1]
 y2 = wine$quality[-trRows]
 ```
 
-```{r}
+```{r include=FALSE}
 #set ctrl1
 ctrl1 <- trainControl(method = "cv", number = 10)
 ```
 
 # Exploratory Data Analysis
+
+
+```{r, fig.height=4, echo = FALSE}
+f_a = ggplot(wine,aes(x =fixed_acidity)) + 
+  geom_density()
+
+v_c = ggplot(wine,aes(x =volatile_acidity)) + 
+  geom_density()
+
+c_a = ggplot(wine,aes(x =citric_acid)) + 
+  geom_density()
+
+r_s = ggplot(wine,aes(x =residual_sugar)) + 
+  geom_density()
+
+chol = ggplot(wine,aes(x =chlorides)) + 
+  geom_density()
+
+fsd = ggplot(wine,aes(x =free_sulfur_dioxide)) + 
+  geom_density()
+
+tsd = ggplot(wine,aes(x =total_sulfur_dioxide)) + 
+  geom_density()
+
+denst = ggplot(wine,aes(x =density)) + 
+  geom_density()
+
+ph = ggplot(wine,aes(x =p_h)) + 
+  geom_density()
+
+sup = ggplot(wine,aes(x =sulphates)) + 
+  geom_density()
+
+achol = ggplot(wine,aes(x =alcohol)) + 
+  geom_density()
+
+(f_a + v_c + c_a + r_s + chol) / (fsd + tsd + denst + ph + sup + achol)
+
+```
+
 
 ```{r, fig.height=4}
 #Create scatter plots of responses and predictors
@@ -68,21 +137,24 @@ featurePlot(x, y, plot = "scatter", labels = c("","Y"),
             type = c("p"), layout = c(4, 2))
 ```
 
-```{r}
+```{r fig.height=4}
 corrplot(cor(x1), method = "square", type = "full")
 ```
 **description**
-
+positive correlation negative correlation
 pH and fixed acidity
 alcohol and density
 citric acid and fixed acidity
 citric acid and volatile acidity
 
-# Model fit
+# Models
+
+**But we cannot use test error to choose model.**
+**However we could report the test error of the final model**
 
 ```{r}
 #linear fit R^2 = 0.3458
-set.seed(1)
+set.seed(11)
 lm.fit <-train(x1, y1,method = "lm",
                trControl = ctrl1)
 summary(lm.fit)
@@ -90,7 +162,7 @@ summary(lm.fit)
 
 ```{r}
 #Ridge fit
-set.seed(1)
+set.seed(11)
 ridge.fit <-train(x1, y1,method = "glmnet",
                   tuneGrid =expand.grid(alpha = 0,
                                         lambda =exp(seq(-5, 5, length=100))),
@@ -100,31 +172,75 @@ plot(ridge.fit, xTrans =function(x)log(x))
 ridge.fit$bestTune
 coef(ridge.fit$finalModel,ridge.fit$bestTune$lambda)
 
-predict(ridge.fit, s = ridge.fit$bestTune, newdata = x2)
+#test error
+predict_y_ridge = predict(ridge.fit, s = ridge.fit$bestTune, newdata = x2)
+mse_ridge = mean((y2-predict_y_ridge)^2)
 ```
 
 ```{r}
-set.seed(1)
+set.seed(11)
 # Lasso
 lasso.fit = train(x1, y1,method = "glmnet",
                   tuneGrid =expand.grid(alpha = 1,
                                         lambda =exp(seq(-10, 0, length=100))),
                   trControl = ctrl1)
-                
+summary(lasso.fit)              
 plot(lasso.fit, xTrans =function(x)log(x))
 lasso.fit$bestTune
 coef(lasso.fit$finalModel,lasso.fit$bestTune$lambda)
+
+#test error
+predict_y_lasso = predict(lasso.fit, s = lasso.fit$bestTune, newdata = x2)
+test_error_lasso = mean((y2-predict_y_lasso)^2)
 ```
 
+```{r}
+#pcr
+set.seed(11)
+pcr.fit <-train(x1, y1,
+                method = "pcr",
+                tuneGrid  =data.frame(ncomp = 1:11),
+                trControl = ctrl1,
+                preProc =c("center", "scale"))
+
+ggplot(pcr.fit, highlight = TRUE) +theme_bw()
+# so the ncomp = 11
+#pcr.fit$finalModel$coefficients
+```
+, , 11 comps
+
+                         .outcome
+fixed_acidity        -0.046151690
+volatile_acidity     -0.207362623
+citric_acid          -0.044630750
+residual_sugar       -0.006087958
+chlorides            -0.105520584
+free_sulfur_dioxide   0.059433323
+total_sulfur_dioxide -0.134563961
+density               0.045446567
+p_h                  -0.101488031
+sulphates             0.151034045
+alcohol               0.324604503
+```{r}
+#pls
+set.seed(11)
+pls.fit <-train(x1, y1,method = "pls",
+                tuneGrid =data.frame(ncomp = 1:12),
+                trControl = ctrl1,preProc =c("center", "scale"))
+
+predy2.pls2 <-predict(pls.fit, newdata = x2)
 
 
+ggplot(pls.fit, highlight = TRUE)
+```
 
 Treat the response quality as continous variable or classified variable
 How to treat quality as classified variable? factor the response
 
 
-```{r}
-#fit GAM  R^2 = 0.415 
+```{r, fig.height=4}
+#fit GAM
+set.seed(11)
 gam.fit <- train(x1, y1,
                  method = "gam",
                  tuneGrid = data.frame(method = "GCV.Cp", select = FALSE),
@@ -133,15 +249,16 @@ summary(gam.fit)
 gam.fit$finalModel
 
 plot(gam.fit$finalModel)
+
 ```
 
 
 ```{r}
-# MARS R^2 = 0.4271106
+# MARS 
 mars_grid <- expand.grid(degree = 1:2, 
-                         nprune = 2:20)
+                         nprune = 1:12)
 
-set.seed(2)
+set.seed(11)
 mars.fit <- train(x1, y1,
                   method = "earth",
                   tuneGrid = mars_grid,
@@ -155,16 +272,16 @@ mars.fit$bestTune
 coef(mars.fit$finalModel) 
 ```
 
-# Pick a model
+
 
 Look R-squared
 
-
+MSE
 
 ## Resample
 
 ```{r}
-resamp = resamples(list(lm = lm.fit, ridge = ridge.fit, lasso = lasso.fit, mars = mars.fit, mars = mars.fit))
+resamp = resamples(list(lm = lm.fit, ridge = ridge.fit, lasso = lasso.fit, mars = mars.fit, gam = gam.fit, pcr = pcr.fit, pls = pls.fit))
 
 summary(resamp)
 bwplot(resamp, metric = "RMSE")
@@ -172,18 +289,17 @@ bwplot(resamp, metric = "RMSE")
 
 
 
-# Predict
+What predictor include
 
-```{r}
+Model fitting method. assumptions. Treat the response as continous variable.
 
-```
+tuning parameter there is no tuning parameter
 
-
-
-
-
-
-
+training test ( MSE?)
+ which var plays important role
+ 
+limitation classification just treat response as continous we could do more
+flexible?
 
 
 

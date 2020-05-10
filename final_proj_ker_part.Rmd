@@ -1,0 +1,80 @@
+---
+title: "final_proj_kernel"
+author: "Ziqi Zhou"
+date: "5/5/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE,message = FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(caret)
+library(MASS)
+
+library(mlbench)
+library(e1071)
+```
+
+```{r}
+wine = read_csv("./data/winequality-red.csv") %>% 
+  janitor::clean_names() %>% 
+  na.omit() %>% 
+  as.data.frame() %>% 
+  mutate(quality = as.factor(quality))
+
+trRows = createDataPartition(wine$quality, p = .75, list = F)
+
+train_data = wine[trRows,]
+test_data = wine[-trRows,]
+```
+
+
+# Linear Kernel
+```{r}
+ctrl <- trainControl(method = "cv")
+
+set.seed(1)
+svml.fit <- train(quality~., 
+                  data = train_data, 
+                  method = "svmLinear2",
+                  preProcess = c("center", "scale"),
+                  tuneGrid = data.frame(cost = exp(seq(-5,0,len=20))),
+                  trControl = ctrl)
+
+ggplot(svml.fit, highlight = TRUE)
+```
+
+# Radial Kernel
+
+```{r}
+svmr.grid <- expand.grid(C = exp(seq(-1,4,len=10)),
+                         sigma = exp(seq(-2,-0,len=10)))
+set.seed(1)             
+svmr.fit <- train(quality~., wine, 
+                  subset = trRows,
+                  method = "svmRadial",
+                  preProcess = c("center", "scale"),
+                  tuneGrid = svmr.grid,
+                  trControl = ctrl)
+
+ggplot(svmr.fit, highlight = TRUE)
+```
+
+
+
+
+
+# Resample
+
+
+```{r}
+resamp <- resamples(list(svmr = svmr.fit, svml = svml.fit))
+bwplot(resamp)
+```
+
+
+# Test data performance
+```{r}
+
+```
+
